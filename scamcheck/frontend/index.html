@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ScamCheck - check a message, link or password</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>ScamCheck</h1>
+  <p>Paste a suspicious SMS, WhatsApp message or link. See exactly which words and signs give it away.</p>
+  <span id="status" class="status" role="status">Connecting to server</span>
+</header>
+<main>
+  <section class="tool" aria-label="Checker">
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="message">Message</button>
+      <button role="tab" aria-selected="false" data-tab="url">Link</button>
+      <button role="tab" aria-selected="false" data-tab="password">Password</button>
+    </div>
+    <div id="panel-message" class="panel">
+      <label for="in-message">Message text</label>
+      <textarea id="in-message" rows="7" placeholder="Paste the message you received"></textarea>
+    </div>
+    <div id="panel-url" class="panel" hidden>
+      <label for="in-url">Link</label>
+      <input id="in-url" type="text" placeholder="Paste a link, for example hdfcbank-kyc.xyz/login" autocomplete="off">
+    </div>
+    <div id="panel-password" class="panel" hidden>
+      <label for="in-password">Password</label>
+      <input id="in-password" type="password" placeholder="Type a password to test" autocomplete="off">
+      <p class="note">Checked inside your browser. The password is never sent anywhere.</p>
+    </div>
+    <div class="actions">
+      <button id="go" class="primary">Check message</button>
+      <div id="examples" class="examples"></div>
+    </div>
+  </section>
+  <section id="result" class="result" aria-live="polite">
+    <p class="empty">Results appear here. Try one of the examples to see how a scam is picked apart.</p>
+  </section>
+</main>
+<footer>Rule-based checks give guidance, not a guarantee. Report fraud at cybercrime.gov.in or call 1930.</footer>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

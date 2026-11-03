@@ -1,0 +1,9 @@
+{
+  "name": "scamcheck-api",
+  "version": "1.0.0",
+  "description": "Rule-based phishing link and scam message analyzer (no database)",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node test.js" },
+  "dependencies": { "cors": "^2.8.5", "express": "^4.19.2" },
+  "engines": { "node": ">=18" }
+}

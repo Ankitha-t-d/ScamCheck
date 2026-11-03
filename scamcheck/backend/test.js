@@ -1,0 +1,12 @@
+const assert = require('assert');
+const { analyzeUrl } = require('./src/url');
+const { analyzeMessage } = require('./src/message');
+const t = (n, f) => { f(); console.log('ok  ' + n); };
+t('official bank is safe', () => assert.strictEqual(analyzeUrl('https://www.hdfcbank.com/personal').level, 'safe'));
+t('fake bank flagged', () => assert(analyzeUrl('http://hdfcbank-kyc-update.xyz/login').score >= 55));
+t('typosquat flagged', () => assert(analyzeUrl('https://paypa1.com/verify').score >= 25));
+t('ip host flagged', () => assert(analyzeUrl('http://192.168.4.5/login').score >= 30));
+t('invalid url', () => assert(analyzeUrl('not a url ::').error));
+t('genuine OTP sms is safe', () => assert.strictEqual(analyzeMessage('482913 is your OTP for login. Do not share it with anyone.').level, 'safe'));
+t('kyc scam flagged', () => assert.strictEqual(analyzeMessage('Dear customer your SBI account will be blocked today. Update KYC immediately: http://sbi-kyc-update.top/login').level, 'dangerous'));
+t('digital arrest flagged', () => assert(analyzeMessage('This is CBI. A parcel in your name has narcotics. Call +91 9876543210 now to avoid arrest.').score >= 25));
