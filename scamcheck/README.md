@@ -83,7 +83,7 @@ The systemd unit reads these from `/etc/scamcheck/backend.env`.
         | /api/* reverse proxy (default mode)  |
         +------------------+-------------------+
                            |
-             http://<BACKEND_PUBLIC_IP>:8000
+             http://<BACKEND_PRIVATE_IP>:8000
                            |
                            v
         +--------------------------------------+
@@ -106,7 +106,7 @@ The frontend is static, so **the user's browser** is the process that calls the 
 
 There are two valid ways to handle this:
 
-1. **Reverse proxy (default, recommended).** `cli3.sh` configures Apache on `app_client` to forward `/api/*` to `http://<BACKEND_PUBLIC_IP>:8000`. The browser calls only port 80 on the frontend. The backend security group can stay restricted to `app_client_sg`, exactly as specified.
+1. **Reverse proxy (default, recommended).** `cli3.sh` configures Apache on `app_client` to forward `/api/*` to `http://<BACKEND_PRIVATE_IP>:8000`. The browser calls only port 80 on the frontend. The backend security group can stay restricted to `app_client_sg`, exactly as specified. Use the backend's **private** IPv4 address here: AWS security-group referencing matches private IP addresses, and both instances are in the same VPC.
 2. **Direct mode.** `cli3.sh --direct` writes the backend public URL into the deployed `config.js`, so the browser calls port 8000 directly. This is simpler, but `app_server_sg` must then allow TCP 8000 from `0.0.0.0/0` (or the specific client IPs). CORS still limits which web origins can read responses, but the API itself is reachable by anyone who can connect.
 
 The default is proxy mode because it matches the requested `app_client_sg` rule and avoids exposing the API to the whole internet.
@@ -119,7 +119,8 @@ The default is proxy mode because it matches the requested `app_client_sg` rule 
 - **No client-side routing:** the app is a single page with tabs, not routes. A page refresh at `/` works. No SPA rewrite is added, so missing assets still return real 404s.
 - **No build step:** `cli2.sh` copies the frontend files directly to `/var/www/html`; it does not run `npm run build`.
 - **Rate limiting in proxy mode:** because all proxied requests arrive from the frontend instance, the in-memory 60/min limit is shared by all users in proxy mode. For a lab/demo this is acceptable. Direct mode preserves per-client IP limiting. See the troubleshooting section if you need to change this.
-- **Public IP changes:** unless you attach an Elastic IP, stopping and starting an instance changes its public IP. Re-run `cli3.sh` and `ser3.sh` after such a change.
+- **Private IP for the proxy:** use the backend's private IPv4 address in `cli3.sh` proxy mode. Security-group referencing allows traffic from the private IPs of the instances in `app_client_sg`; a public IP would not match that rule. The private IP stays the same across stop/start.
+- **Public IP changes:** unless you attach an Elastic IP, stopping and starting an instance changes its public IP. Re-run `ser3.sh` if the frontend public IP changed, and re-run `cli3.sh` in direct mode if the backend public IP changed.
 
 ---
 
@@ -142,9 +143,9 @@ Create it in the same VPC as the instances.
 | Type | Protocol | Port | Source | Purpose |
 |---|---|---:|---|---|
 | SSH | TCP | `22` | My IP | Administration |
-| Custom TCP | TCP | `8000` | `app_client_sg` | Frontend reverse proxy |
+| Custom TCP | TCP | `8000` | `app_client_sg` | Frontend reverse proxy (private IP) |
 
-The `8000` source must be the **security group**, not a CIDR, for proxy mode. In the console choose **Source → Security group → app_client_sg**.
+The `8000` source must be the **security group**, not a CIDR, for proxy mode. In the console choose **Source → Security group → app_client_sg**. AWS matches this rule against the private IP address of the frontend instance, so the proxy must target the backend's private IP (section 11.1).
 
 If you use `cli3.sh --direct`, add one more inbound rule:
 
@@ -394,6 +395,13 @@ sudo systemctl status scamcheck-api --no-pager
 curl http://localhost:8000/api/health
 ```
 
+Record this instance's **private** IPv4 address. The frontend proxy uses it in section 11.1:
+
+```bash
+hostname -I
+# or: ip -4 -o addr show scope global
+```
+
 Expected health response:
 
 ```json
@@ -503,20 +511,22 @@ sudo tail -f /var/log/httpd/scamcheck-access.log
 
 ### 11.1 Default: reverse proxy mode (recommended)
 
-This mode keeps the backend security group restricted to `app_client_sg`. The browser talks only to Apache on the frontend, and Apache forwards `/api/*` to the backend public IP.
+This mode keeps the backend security group restricted to `app_client_sg`. The browser talks only to Apache on the frontend, and Apache forwards `/api/*` to the backend **private** IP. Both instances must be in the same VPC; the default VPC route table already allows private-subnet traffic between them.
+
+Get the backend private IPv4 on `app_server` (section 9.2) and use it here. Do **not** use the public IP in proxy mode: the `app_client_sg` rule is evaluated against private IP addresses.
 
 **On `app_client`:**
 
 ```bash
 cd ~/ScamCheck/scamcheck/frontend/scripts
 chmod +x cli3.sh
-./cli3.sh http://<BACKEND_PUBLIC_IP>:8000
+./cli3.sh http://<BACKEND_PRIVATE_IP>:8000
 ```
 
 `cli3.sh` performs these steps:
 
 1. Validates the backend URL (scheme, host, optional port; no path or wildcard).
-2. Checks `http://<BACKEND_PUBLIC_IP>:8000/api/health` from the frontend instance.
+2. Checks `http://<BACKEND_PRIVATE_IP>:8000/api/health` from the frontend instance.
 3. Enables Apache `mod_proxy`, `mod_proxy_http`, and `mod_headers` if needed.
 4. Sets the SELinux boolean `httpd_can_network_connect` when SELinux is enforcing.
 5. Writes `/etc/httpd/conf.d/scamcheck-api-proxy.conf`:
@@ -525,8 +535,8 @@ chmod +x cli3.sh
 ProxyRequests Off
 ProxyPreserveHost Off
 ProxyTimeout 30
-ProxyPass        /api  http://<BACKEND_PUBLIC_IP>:8000/api  timeout=30
-ProxyPassReverse /api  http://<BACKEND_PUBLIC_IP>:8000/api
+ProxyPass        /api  http://<BACKEND_PRIVATE_IP>:8000/api  timeout=30
+ProxyPassReverse /api  http://<BACKEND_PRIVATE_IP>:8000/api
 RequestHeader set X-Forwarded-Proto "http"
 ```
 
@@ -602,10 +612,10 @@ The response should be `204` with the same `Access-Control-Allow-Origin` header 
 
 ### 11.4 If a public IP changes
 
-If you stop/start an instance without an Elastic IP, its public IP changes. Then:
+If you stop/start an instance without an Elastic IP, its public IP changes. The private IPs stay the same, so proxy mode keeps working. Then:
 
-- If the **backend** IP changed: re-run `cli3.sh` on the frontend with the new URL.
-- If the **frontend** IP changed: re-run `ser3.sh` on the backend with the new origin.
+- If the **frontend public IP** changed: re-run `ser3.sh` on the backend with the new origin.
+- If you use **direct mode** and the **backend public IP** changed: re-run `cli3.sh --direct` on the frontend with the new URL.
 - Reload the browser with a hard refresh (`Ctrl+F5`) so the updated `config.js` is used.
 
 ---
@@ -705,7 +715,8 @@ Both services should come back automatically because they are enabled in systemd
 |---|---|---|
 | `curl: (7) Failed to connect` to `:8000` | Service down, wrong IP, or security group blocks the source | `sudo systemctl status scamcheck-api`; `sudo ss -ltnp \| grep ':8000'`; check `app_server_sg` |
 | Browser says **Server unreachable** | Backend down or `config.js` points at the wrong URL | `curl http://localhost:8000/api/health` on the backend; rerun `cli3.sh` on the frontend |
-| `502 Bad Gateway` / `503 Service Unavailable` through the frontend | Apache cannot reach the backend | Check backend health; check `app_server_sg` allows 8000 from `app_client_sg`; check SELinux boolean `httpd_can_network_connect` |
+| `502 Bad Gateway` / `503 Service Unavailable` through the frontend | Apache cannot reach the backend | Check backend health; confirm `cli3.sh` used the backend **private** IP; check `app_server_sg` allows 8000 from `app_client_sg`; check SELinux boolean `httpd_can_network_connect` |
+| Proxy times out even though the backend works locally | `cli3.sh` was given the backend public IP | Re-run `./cli3.sh http://<BACKEND_PRIVATE_IP>:8000`; the `app_client_sg` reference matches private IPs only |
 | CORS error in the browser console | `ALLOWED_ORIGIN` does not exactly match the frontend origin | Run `./ser3.sh http://<FRONTEND_PUBLIC_IP>` with the exact scheme/host/port; no trailing slash |
 | `403 Forbidden` from Apache | Wrong file permissions or SELinux label | `sudo chown -R root:root /var/www/html`; `sudo find /var/www/html -type f -exec chmod 644 {} +`; `sudo restorecon -R /var/www/html` |
 | Page loads but CSS/JS are missing | Assets were not copied or Apache is serving the wrong docroot | `ls -l /var/www/html`; rerun `cli2.sh`; check `/etc/httpd/conf.d/scamcheck.conf` |
@@ -805,7 +816,8 @@ git clone https://github.com/Ankitha-t-d/ScamCheck.git
 cd ~/ScamCheck/scamcheck/frontend/scripts
 chmod +x cli2.sh cli3.sh
 ./cli2.sh
-./cli3.sh http://<BACKEND_PUBLIC_IP>:8000
+# BACKEND_PRIVATE_IP: run "hostname -I" on app_server (same VPC)
+./cli3.sh http://<BACKEND_PRIVATE_IP>:8000
 ```
 
 **Then test in a browser:**

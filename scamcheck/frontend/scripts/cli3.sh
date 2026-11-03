@@ -2,12 +2,14 @@
 # Connect the deployed ScamCheck frontend to the backend.
 #
 # Usage:
-#   ./cli3.sh http://<BACKEND_PUBLIC_IP>:8000
+#   ./cli3.sh http://<BACKEND_PRIVATE_IP>:8000
 #   ./cli3.sh --direct http://<BACKEND_PUBLIC_IP>:8000
 #
 # Default (proxy) mode:
-#   Browser -> Apache on the frontend :80 -> backend public IP :8000
-#   The backend security group can stay restricted to app_client_sg.
+#   Browser -> Apache on the frontend :80 -> backend private IP :8000
+#   The backend security group can stay restricted to app_client_sg, because
+#   AWS security-group referencing matches the frontend's private IP.
+#   Both instances must be in the same VPC. Use `hostname -I` on the backend.
 #
 # Direct mode:
 #   Browser -> backend public IP :8000
@@ -36,14 +38,15 @@ usage() {
   cat <<EOF
 Usage: ./cli3.sh [--proxy|--direct] <backend-origin>
 
-  --proxy   (default) Apache forwards /api to the backend. The backend
-            security group can remain limited to app_client_sg.
+  --proxy   (default) Apache forwards /api to the backend private IP. The
+            backend security group can remain limited to app_client_sg.
+            Both instances must be in the same VPC.
   --direct  The browser calls the backend public IP directly. The backend
             security group must allow the browser IPs (for example 0.0.0.0/0).
 
 Examples:
-  ./cli3.sh http://54.123.45.67:8000
-  ./cli3.sh --direct http://54.123.45.67:8000
+  ./cli3.sh http://10.0.1.25:8000              # proxy, private IP
+  ./cli3.sh --direct http://54.123.45.67:8000  # direct, public IP
 EOF
 }
 
@@ -148,7 +151,9 @@ Check all of the following:
   - The backend listens on 0.0.0.0:8000: sudo ss -ltnp | grep ':8000'
   - app_server_sg allows TCP 8000 from app_client_sg (proxy mode) or from the
     browser/client IPs (direct mode).
-  - The backend public IP is correct and the instance is running.
+  - Proxy mode uses the backend PRIVATE IP (from 'hostname -I' on app_server),
+    and both instances are in the same VPC. Direct mode uses the public IP.
+  - The backend IP is correct and the instance is running.
 EOF
   die "Backend health check failed."
 fi
@@ -277,8 +282,10 @@ EOF
 if [[ "$MODE" == "proxy" ]]; then
   cat <<EOF
 Proxy mode is active. The browser calls the frontend on port 80, and Apache
-forwards /api to the backend. Keep app_server_sg inbound TCP 8000 restricted
-to app_client_sg; do not open 8000 to the world for this mode.
+forwards /api to the backend private IP. Keep app_server_sg inbound TCP 8000
+restricted to app_client_sg; do not open 8000 to the world for this mode.
+If you passed the backend public IP, switch to the private IP (hostname -I on
+app_server) because the app_client_sg reference matches private addresses.
 EOF
 else
   cat <<EOF

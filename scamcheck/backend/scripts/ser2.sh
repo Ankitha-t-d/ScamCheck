@@ -243,6 +243,9 @@ cat <<EOF
 
 Next steps:
   1. In AWS, allow TCP $PORT on app_server_sg from app_client_sg (see README).
-  2. On the frontend instance, run cli3.sh with this backend URL.
-  3. On this instance, run ser3.sh with the frontend URL to lock down CORS.
+  2. On the frontend instance, run cli3.sh with this instance's PRIVATE IP:
+       ./cli3.sh http://<BACKEND_PRIVATE_IP>:$PORT
+     Security-group referencing matches private IPs, so use the private IPv4
+     from 'hostname -I', not the public IP. Both instances must be in the same VPC.
+  3. On this instance, run ser3.sh with the frontend public URL to lock down CORS.
 EOF
